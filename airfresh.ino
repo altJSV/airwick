@@ -6,66 +6,64 @@
 #include "GyverTimer.h"
 #define ENGINE_PIN 2
 #define PHOTO_PIN A7
-GTimer photoTime(MS);
-GTimer waitFart(MS);
-GTimer wePiss(MS);
-uint32_t tmr;
-byte fart=false;
+GTimer photoTime(MS); //таймер чтения показаний фотосенсора в вактивном режиме
+GTimer waitFart(MS); //Таймер с интервалом срабатывания освежителя в активном режиме
+GTimer wePiss(MS); //Таймер ожидания до перехода в активный режим
+byte fart=false; //флаг того что мы задержались в туалете и требуется освежить воздух
 int val;
 void setup() {
-  //Serial.begin(9600);
-  // put your setup code here, to run once:
-  pinMode(ENGINE_PIN, OUTPUT);
-  photoTime.setInterval(500); //пол секунды prescaler_1 ставить 500
-  power.autoCalibrate(); // автоматическая калибровка
+  pinMode(ENGINE_PIN, OUTPUT);//Подключаем движок освежителя
+  photoTime.setInterval(250); //время срабатывания сенсора. После пробуждения. По умолчанию равно полсекунды. При установке prescaler >1 делим на значение prescaller. То есть, для интервала в полсекунды на prescaller 2 нужно установить значение 250
+  power.autoCalibrate(); // автоматическая калибровка системных таймеров
 
   // отключение ненужной периферии
-  power.hardwareDisable(PWR_SPI | PWR_I2C  ); // см раздел константы в GyverPower.h, разделяющий знак " | "
+  power.hardwareDisable(PWR_SPI | PWR_I2C  ); // см раздел константы в GyverPower.h, разделяющий знак " | ". Отключаем ненужные сервисы
 
-  // управление системной частотой
-  power.setSystemPrescaler(PRESCALER_2); // см константы в GyverPower.h
+  /* управление системной частотой. Устанавливаем предделитель системной частоты. По умолчанию равен 1 и Ардуино работет на 16 мГц. При значении 2 частота уже будет 8 мгц
+  При значении 4 уже 4 мГц. Необходимо для уменьшения энергопотребления
+  */
+  power.setSystemPrescaler(PRESCALER_2); // см константы в GyverPower.h. Устанавливаем предделитель системной частоты. По умолчанию равен 1 и Ардуино работет на 16 мГц. При значении 2 частота уже будет 8 мгц
   
   // настройка параметров сна
   power.setSleepMode(POWERDOWN_SLEEP); // если нужен другой режим сна, см константы в GyverPower.h (по умолчанию POWERDOWN_SLEEP)
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
+//Читаем показания фотосенсора
 if (photoTime.isReady()){ 
 val = analogRead (PHOTO_PIN);
-//Serial.println(String(val));
-//Serial.println(fart);
+//Если значение освещения выше порогового (можно установить от 0 до 1024). Чем больше тем выше яркость
 if (val>500) {
-if (waitFart.isEnabled()!=true) waitFart.setInterval(240000); //4 минуты 
-if (wePiss.isEnabled()!=true && fart==false) wePiss.setInterval(120000); // 2 минуты 
+if (waitFart.isEnabled()!=true) waitFart.setInterval(120000); //Если таймер активного режима не включен, то включаем его и устанавливаем его в миллисекундах. В данном случае при presacaller_2 (1000мс * 60сек * 4 мин)/2 делитель = 120000мс или 4 минуты 
+if (wePiss.isEnabled()!=true && fart==false) wePiss.setInterval(60000); // Запускаем предварительный таймер, до включения активного режима. То есть если свет включился кратковременно и почти сразу выключился, то освежать воздух не требуется. По умолчанию 2 минуты. Расчет аналогично предыдущему   
 }
-else
+else //если освещение ниже порогового или свет выключен
 {
-  if (fart==true){
-  
-  if (waitFart.isEnabled()!=true) {
-    fart=false;
+  if (fart==true){ //если флаг того что требуется освежить воздух включен
+  //Ждем окончания интервала срабатывания освежителя
+  if (waitFart.isEnabled()!=true) {//проверяем что таймер активного режима выключен
+    fart=false; //отключаем флаг для освежения воздуха
     power.sleep(SLEEP_8192MS); // спим ~ 8 секунд  
   }
   }
-  else {
-    if (wePiss.isEnabled()) wePiss.stop();
-    if (waitFart.isEnabled()) waitFart.stop();
+  else { //если флаг освежения воздуха выключен
+    if (wePiss.isEnabled()) wePiss.stop(); //отключаем предварительный таймер
+    if (waitFart.isEnabled()) waitFart.stop();//Отключаем таймер интервала освежения воздуха
     power.sleep(SLEEP_8192MS); 
   }
   
 }
 
 }
-if (waitFart.isReady()){
+if (waitFart.isReady()){//Если интервал срабатывания освежителя истек
   
-  digitalWrite(ENGINE_PIN,HIGH);
-  delay(700);
-  digitalWrite(ENGINE_PIN,LOW);
-  waitFart.stop();  
+  digitalWrite(ENGINE_PIN,HIGH);//включаем движок
+  delay(700);//ждем пока движок отработает нажатие на освежитель
+  digitalWrite(ENGINE_PIN,LOW);//Отключаем движок
+  waitFart.stop();  //отключаем таймер
 }
-if (wePiss.isReady()){
- fart=true;
- wePiss.stop(); 
+if (wePiss.isReady()){//Предварительный таймер отработал. Свет еще горит
+ fart=true;//Включаем флаг, что требуется освежить воздух
+ wePiss.stop(); //Отключаем предварительный таймер
 }
 }
